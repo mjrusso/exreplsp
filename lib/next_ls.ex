@@ -69,9 +69,6 @@ defmodule NextLS do
 
     Node.set_cookie(node, cookie)
 
-    # TEMP: crash if we can't connect to the node.
-    true = Node.connect(node)
-
     {:ok,
      assign(lsp,
        auto_update: Keyword.get(args, :auto_update, false),
