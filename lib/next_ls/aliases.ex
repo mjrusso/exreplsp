@@ -31,6 +31,7 @@ defmodule NextLS.Aliases do
       alias GenLSP.Requests.WorkspaceApplyEdit
       alias GenLSP.Requests.WorkspaceSymbol
       alias GenLSP.Structures.ApplyWorkspaceEditParams
+      alias GenLSP.Structures.CodeAction
       alias GenLSP.Structures.CodeActionContext
       alias GenLSP.Structures.CodeActionOptions
       alias GenLSP.Structures.CodeActionParams

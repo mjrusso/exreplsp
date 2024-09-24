@@ -91,6 +91,7 @@ defmodule NextLS.LSPSupervisor do
         {Task.Supervisor, name: :runtime_task_supervisor},
         {GenLSP.Buffer, [name: NextLS.Buffer] ++ buffer_opts},
         {NextLS.DiagnosticCache, name: :diagnostic_cache},
+        {NextLS.Evaluator, name: :evaluator},
         {Registry, name: NextLS.Registry, keys: :duplicate},
         {NextLS,
          auto_update: auto_update,

@@ -1,0 +1,5 @@
+#!/usr/bin/env bash
+
+cd "$(dirname "$0")"/.. || exit 1
+
+/nix/store/6y3hrj11wp2fqgj31yc21lbagmjf0sc4-elixir-1.17.2/bin/elixir --name exreplsp6@127.0.0.1 -S mix run --no-halt -e "Application.ensure_all_started(:next_ls)" -- "$@"

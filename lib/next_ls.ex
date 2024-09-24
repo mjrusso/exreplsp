@@ -10,7 +10,9 @@ defmodule NextLS do
   alias NextLS.DB
   alias NextLS.Definition
   alias NextLS.DiagnosticCache
+  alias NextLS.Evaluator
   alias NextLS.Progress
+  alias NextLS.RangeExtractor
   alias NextLS.Runtime
   alias NextLS.Runtime.BundledElixir
 
@@ -60,6 +62,16 @@ defmodule NextLS do
     cache = Keyword.fetch!(args, :cache)
     {:ok, logger} = DynamicSupervisor.start_child(dynamic_supervisor, {NextLS.Logger, lsp: lsp})
 
+    # This configuration should come from somewhere, ideally via some
+    # LSP-related configuration protocol. For now, hardcode the values.
+    node = :"mynode@127.0.0.1"
+    cookie = :mycookie
+
+    Node.set_cookie(node, cookie)
+
+    # TEMP: crash if we can't connect to the node.
+    true = Node.connect(node)
+
     {:ok,
      assign(lsp,
        auto_update: Keyword.get(args, :auto_update, false),
@@ -77,6 +89,7 @@ defmodule NextLS do
        dynamic_supervisor: dynamic_supervisor,
        registry: registry,
        extensions: extensions,
+       eval_node: node,
        ready: false,
        client_capabilities: nil
      )}
@@ -125,7 +138,7 @@ defmodule NextLS do
            change: TextDocumentSyncKind.full()
          },
          code_action_provider: %CodeActionOptions{
-           code_action_kinds: [CodeActionKind.quick_fix()]
+           code_action_kinds: [CodeActionKind.quick_fix(), "eval"]
          },
          completion_provider:
            if init_opts.experimental.completions.enable do
@@ -154,7 +167,7 @@ defmodule NextLS do
            }
          }
        },
-       server_info: %{name: "Next LS"}
+       server_info: %{name: "Exreplsp (Elixir REPL-over-LSP Prototype)"}
      },
      assign(lsp,
        mix_home: mix_home,
@@ -170,22 +183,34 @@ defmodule NextLS do
         %TextDocumentCodeAction{
           params: %CodeActionParams{
             context: %CodeActionContext{diagnostics: diagnostics},
-            text_document: %TextDocumentIdentifier{uri: uri}
+            text_document: %TextDocumentIdentifier{uri: uri},
+            range: %Range{} = range
           }
         },
         lsp
       ) do
     code_actions =
-      for %Diagnostic{} = diagnostic <- diagnostics,
-          data = %NextLS.CodeActionable.Data{
-            diagnostic: diagnostic,
-            uri: uri,
-            document: lsp.assigns.documents[uri]
-          },
-          namespace = diagnostic.data["namespace"],
-          action <- NextLS.CodeActionable.from(namespace, data) do
-        action
-      end
+      [
+        %CodeAction{
+          title: "Eval Code",
+          kind: "eval",
+          command: %GenLSP.Structures.Command{
+            title: "Eval Code",
+            command: "eval-code",
+            arguments: [%{uri: uri, range: range}]
+          }
+        }
+      ] ++
+        for %Diagnostic{} = diagnostic <- diagnostics,
+            data = %NextLS.CodeActionable.Data{
+              diagnostic: diagnostic,
+              uri: uri,
+              document: lsp.assigns.documents[uri]
+            },
+            namespace = diagnostic.data["namespace"],
+            action <- NextLS.CodeActionable.from(namespace, data) do
+          action
+        end
 
     {:reply, code_actions, lsp}
   end
@@ -725,6 +750,32 @@ defmodule NextLS do
       ) do
     reply =
       case command do
+        "eval-code" ->
+          [arguments] = params.arguments
+
+          uri = arguments["uri"]
+          range = arguments["range"]
+          text = lsp.assigns.documents[uri]
+
+          # TODO: don't just extract the provided text verbatim: figure out the
+          # surrounding context and evaluate as appropriate.
+          extracted = RangeExtractor.extract_range(text, range)
+
+          # FIXME: If the result contains the compiled module bytecode (e.g.
+          # when redefining a module), the LSP server will time out when trying
+          # to send the result to the client.
+          #
+          # TODO: Rescue any errors and return appropriate error struct.
+          result = Evaluator.eval(lsp.assigns.eval_node, extracted)
+
+          NextLS.Logger.show_message(
+            lsp.assigns.logger,
+            :warning,
+            result
+          )
+
+          result
+
         "from-pipe" ->
           [arguments] = params.arguments
 
@@ -815,7 +866,7 @@ defmodule NextLS do
 
   @impl true
   def handle_notification(%Initialized{}, lsp) do
-    NextLS.Logger.log(lsp.assigns.logger, "NextLS v#{version()} has initialized!")
+    NextLS.Logger.log(lsp.assigns.logger, "Exreplsp (Elixir REPL-over-LSP Prototype) v#{version()} has initialized!")
 
     NextLS.Logger.log(
       lsp.assigns.logger,
